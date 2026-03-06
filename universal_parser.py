@@ -305,7 +305,7 @@ class UniversalParser:
         return '\n'.join(lines)
     
     def _parse_docx(self, file_path: Path) -> Dict[str, Any]:
-        """Parse DOCX with table support"""
+        """Parse DOCX with table support and image extraction"""
         
         if not Document:
             return self._error_response("python-docx not installed")
@@ -325,6 +325,23 @@ class UniversalParser:
                 if table_text:
                     sections.append(f"\n[TABLE]\n{table_text}\n[/TABLE]\n")
             
+            # If no content found, try XML extraction
+            if not sections or all(not s.strip() for s in sections):
+                logger.info("No content in paragraphs/tables, trying XML extraction")
+                xml_text = self._extract_from_docx_xml(file_path)
+                if xml_text:
+                    sections.append(xml_text)
+            
+            # If still no content, check for embedded images
+            if not sections or all(not s.strip() for s in sections):
+                logger.info("No text content found, checking for embedded images")
+                image_text = self._extract_images_from_docx(file_path)
+                if image_text:
+                    sections.append(image_text)
+            
+            if not sections or all(not s.strip() for s in sections):
+                return self._error_response("No text content found in DOCX file (no text, tables, or readable images)")
+            
             combined_text = '\n'.join(sections)
             structured_text = self._structure_for_ai(combined_text)
             
@@ -334,13 +351,126 @@ class UniversalParser:
                 'metadata': {
                     'format': 'docx',
                     'tables': len(doc.tables),
-                    'method': 'structured'
+                    'paragraphs': len(doc.paragraphs),
+                    'method': 'structured_with_images'
                 }
             }
             
         except Exception as e:
             logger.error(f"DOCX parse error: {e}")
             return self._error_response(str(e))
+    
+    def _extract_images_from_docx(self, file_path: Path) -> str:
+        """
+        Extract and OCR images from DOCX file
+        """
+        if not self.ocr_enabled or not Image or not pytesseract:
+            logger.warning("OCR not available - cannot extract text from embedded images")
+            return ""
+        
+        try:
+            import zipfile
+            import io
+            
+            image_texts = []
+            
+            # DOCX is a ZIP file
+            with zipfile.ZipFile(file_path, 'r') as zip_ref:
+                # Find all images in word/media/
+                image_files = [n for n in zip_ref.namelist() if n.startswith('word/media/')]
+                
+                logger.info(f"Found {len(image_files)} embedded images in DOCX")
+                
+                for img_idx, img_path in enumerate(image_files):
+                    try:
+                        # Read image data
+                        img_data = zip_ref.read(img_path)
+                        
+                        # Open as PIL Image
+                        pil_img = Image.open(io.BytesIO(img_data))
+                        
+                        # Enhance for OCR
+                        if self.enhance_images:
+                            pil_img = self._enhance_image(pil_img)
+                        
+                        # Perform OCR
+                        text = pytesseract.image_to_string(pil_img, config='--oem 3 --psm 6')
+                        
+                        # Post-process
+                        text = self._post_process_ocr(text)
+                        
+                        if text.strip():
+                            image_texts.append(f"[Image {img_idx + 1}]\n{text.strip()}")
+                            logger.info(f"Extracted {len(text)} chars from {img_path}")
+                    
+                    except Exception as img_error:
+                        logger.warning(f"Could not OCR image {img_path}: {img_error}")
+                        continue
+            
+            if image_texts:
+                return '\n\n'.join(image_texts)
+            
+            return ""
+            
+        except Exception as e:
+            logger.error(f"Error extracting images from DOCX: {e}")
+            return ""
+    
+    def _extract_from_docx_xml(self, file_path: Path) -> str:
+        """
+        Extract text from DOCX XML (handles text boxes, shapes, etc.)
+        """
+        try:
+            import zipfile
+            import xml.etree.ElementTree as ET
+            
+            # DOCX is a ZIP file
+            with zipfile.ZipFile(file_path, 'r') as zip_ref:
+                # Read document.xml
+                xml_content = zip_ref.read('word/document.xml')
+                
+                # Parse XML
+                root = ET.fromstring(xml_content)
+                
+                # Define namespaces
+                namespaces = {
+                    'w': 'http://schemas.openxmlformats.org/wordprocessingml/2006/main',
+                    'v': 'urn:schemas-microsoft-com:vml',
+                    'wp': 'http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing',
+                    'a': 'http://schemas.openxmlformats.org/drawingml/2006/main'
+                }
+                
+                # Extract all text elements
+                texts = []
+                
+                # Get text from regular paragraphs
+                for t in root.findall('.//w:t', namespaces):
+                    if t.text:
+                        texts.append(t.text)
+                
+                # Get text from text boxes and shapes
+                for t in root.findall('.//a:t', namespaces):
+                    if t.text:
+                        texts.append(t.text)
+                
+                # Get text from VML shapes
+                for t in root.findall('.//v:textbox', namespaces):
+                    for txt in t.findall('.//w:t', namespaces):
+                        if txt.text:
+                            texts.append(txt.text)
+                
+                if texts:
+                    # Join texts and clean up
+                    full_text = ' '.join(texts)
+                    # Add line breaks where appropriate
+                    full_text = full_text.replace('  ', '\n')
+                    return full_text
+                
+                return ""
+                
+        except Exception as e:
+            logger.error(f"Error extracting from DOCX XML: {e}")
+            return ""
     
     def _parse_txt(self, file_path: Path) -> Dict[str, Any]:
         """Parse text file"""
