@@ -1,0 +1,77 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual Environment
+venv/
+env/
+ENV/
+.venv
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+*.cover
+
+# Logs
+*.log
+
+# Output files (parsed resumes)
+*_parsed.txt
+*_metadata.json
+*_extracted.txt
+*_clean_extracted.txt
+*_ai_ready.txt
+*_final_extracted.txt
+*_hybrid_extracted.txt
+*_smart_extracted.txt
+
+# Test/Sample files (keep only if needed)
+*.pdf
+*.docx
+*.doc
+*.png
+*.jpg
+*.jpeg
+*.tiff
+*.bmp
+*.txt
+
+# But keep README and requirements
+!README.md
+!requirements.txt
+!FINAL_SOLUTION.md
+
+# Environment variables
+.env
+.env.local
+
+# OS
+Thumbs.db
